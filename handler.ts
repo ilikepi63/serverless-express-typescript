@@ -2,12 +2,14 @@ import * as serverless  from "serverless-http";
 import express          from "express";
 import bodyParser       from "body-parser";
 import * as aws         from "aws-sdk";
-import Utils            from "./utils/utils";
 import User             from "./models/user";
+import db               from "./db/db";
 
 
 // instantiate the express app here
 const app = express()
+
+const dbOperator = db();
 
 // get the USER_TABLES from the environment variables
 const { USERS_TABLE } = process.env;
@@ -23,43 +25,26 @@ app.use( bodyParser.json( { strict: false } ) );
  */
 app.get('/user', function ( req:express.Request, res:express.Response ) {
 
-  const params:aws.DynamoDB.DocumentClient.GetItemInput = {
+
+
+  const params = {
     TableName: USERS_TABLE,
-    Key: {
-
-    },
+    // TODO: add filters in the query param -> req.params
+    // FilterExpression : 'name = :surname',
+    // ExpressionAttributeValues : {':surname' : "cameron"}
   };
+  
+  // do the database operation 
+  dbOperator.invoke( params, "scan" )
+       .then((result => {
 
-  dynamoDb.get(params, (err, result) => {
-
-    // if there was an error, then return a reasonable response
-    if (err) res.status(400).json({ error: 'Could not get user' });
-
-    // check if there is a response with an item 
-    if(!result){
-      // otherwise return a not found error
-      res.status(404).json({ error: "User not found" });
-      return;
-    }
-
-    // check if there is a response with an item 
-    if(!result.Item){
-      // otherwise return a not found error
-      res.status(404).json({ error: "User not found" });
-      return;
-    }
-
-
-      // deconstruct the object to get the userId and name
-      const {userId, name, surname} = result.Item;
-
-      // construct a new object that will be sent back to the client as json 
-      res.json({ userId, name, surname });
-
-
-      
-    
-  });
+          // return the data as json to the client
+          res.json(result);
+       }))
+       .catch( (err) => {
+            res.status(400).json({ error: err ? err : "Could not get any users" })
+            return; 
+       });
 
 });
 
@@ -70,35 +55,27 @@ app.get('/user', function ( req:express.Request, res:express.Response ) {
 app.get('/user/:id', ( req:express.Request, res:express.Response )  => {
 
   // create the params 
-  const params:aws.DynamoDB.DocumentClient.GetItemInput  = {
+  const params = {
     TableName: USERS_TABLE,
     Key: {
       userId: req.params.id,
     },
   }
 
-  // issue the query
-  dynamoDb.get(params, ( err, result ) => {
+  // do the database operation 
+  dbOperator.invoke( params, "get" )
+       .then((result => {
+          // if an item was returned, then send it back 
+          const {userId, name, surname} = result.Item;
 
-    // if there was an error, then return a reasonable response
-    if (err){
-      res.status(400).json({ error: 'Could not get user' })
-      return; 
-    };
+          // return the data as json to the client
+          res.json({ userId, name, surname });
+       }))
+       .catch( (err) => {
+            res.status(400).json({ error: err ? err : "Could not get the user" })
+            return; 
+       });
 
-    if (result && result.Item) {
-      
-      // if an item was returned, then send it back 
-      const {userId, name, surname} = result.Item;
-
-      // return the data as json to the client
-      res.json({ userId, name, surname });
-    } else {
-
-      //otherwise return a 404 if a user was not found
-      res.status(404).json({ error: "User not found" });
-    }
-  });
 })
 
 /** Create a new user
@@ -118,38 +95,78 @@ app.post("/user", ( req:express.Request, res:express.Response ) => {
   // deconstruct the body to get the user data
   const user: User = User.fromJson( parsedBody );
 
+  // validate the user 
   if( !user.validate() ){
     res.status(400).json({ error: user.error });
     return;
   }
 
+  // convert the user back to json
   const userJson = user.toJson();
         
+  // create the params
   const params = {
     TableName: USERS_TABLE,
     Item: userJson,
   };
 
-  dynamoDb.put(params, error => {
+  // do the database operation 
+  dbOperator.invoke( params, "put" )
+    .then((result => {
+      // return the data as json to the client
+      res.json( userJson );
+    }))
+    .catch( (err) => {
+        res.status(400).json({ error: err ? err : "Could not add user" })
+        return; 
+    });
     
-    if (error){
-      res.status(400).json({ error })
-      return;
-    };
-
-    res.json( userJson );
-  });
-
 });
 
 /** Update a user  
  * 
  *  @param id - ID of the user 
  */
-app.put("/user/:id", ( req:express.Request, res:express.Response ) => {
-  const { id } = req.params
+app.put("/user", ( req:express.Request, res:express.Response ) => {
 
-  res.send("You just updated a user");
+  // first will need to parse the json 
+  var parsedBody;
+
+  try{
+    parsedBody = JSON.parse(req.body);
+  }catch(e){
+    res.status(400).json({ error: `Parameter id must be a string. Value: ${req.body}` });
+  }
+
+  // deconstruct the body to get the user data
+  const user: User = User.fromJson( parsedBody );
+
+  // validate the user 
+  if( !user.validate() ){
+    res.status(400).json({ error: user.error });
+    return;
+  }
+
+  // convert the user back to json
+  const userJson = user.toJson();
+        
+  // create the params
+  const params = {
+    TableName: USERS_TABLE,
+    Item: userJson,
+  };
+
+  // do the database operation 
+  dbOperator.invoke( params, "put" )
+    .then((result => {
+      // return the data as json to the client
+      res.json( userJson );
+    }))
+    .catch( (err) => {
+        res.status(400).json({ error: err ? err : "Could not add user" })
+        return; 
+    });
+    
 });
 
 /** Delete a user 
@@ -157,9 +174,25 @@ app.put("/user/:id", ( req:express.Request, res:express.Response ) => {
  *  @param id - ID of the user 
  */
 app.delete("/user/:id", ( req:express.Request, res:express.Response ) => {
-  const { id } = req.params
 
-  res.send("You just deleted a user");
+  // create the params 
+  const params = {
+    TableName: USERS_TABLE,
+    Key: {
+      userId: req.params.id,
+    },
+  }
+
+  // do the database operation 
+  dbOperator.invoke( params, "delete" )
+       .then((result => {
+          res.send(`User ${req.params.id} successfully deleted`);
+       }))
+       .catch( (err) => {
+            res.status(400).json({ error: err ? err : "Could not get the user" })
+            return; 
+       });
+
 });
 
 export const hello = serverless(app);
