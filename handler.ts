@@ -9,13 +9,11 @@ import db               from "./db/db";
 // instantiate the express app here
 const app = express()
 
+// object for database operations
 const dbOperator = db();
 
 // get the USER_TABLES from the environment variables
 const { USERS_TABLE } = process.env;
-
-// instantiate the document client
-const dynamoDb = new aws.DynamoDB.DocumentClient();
 
 // use body parser to interpret body data from express request object
 app.use( bodyParser.json( { strict: false } ) );
@@ -24,8 +22,6 @@ app.use( bodyParser.json( { strict: false } ) );
  * 
  */
 app.get('/user', function ( req:express.Request, res:express.Response ) {
-
-
 
   const params = {
     TableName: USERS_TABLE,
