@@ -3,6 +3,7 @@ import express          from "express";
 import bodyParser       from "body-parser";
 import * as aws         from "aws-sdk";
 import Utils            from "./utils/utils";
+import User             from "./models/user";
 
 
 // instantiate the express app here
@@ -115,33 +116,18 @@ app.post("/user", ( req:express.Request, res:express.Response ) => {
   }
 
   // deconstruct the body to get the user data
-  const { id, name, surname } = parsedBody;
+  const user: User = User.fromJson( parsedBody );
 
-  // check the user id
-  if ( !Utils.isString( id ) ) {
-    res.status(400).json({ error: `Parameter id must be a string. Value: ${req.body}` });
-    return;
-  } 
-  
-  // check the name
-  if (!Utils.isString( name )) {
-    res.status(400).json({ error: '"name" must be a string' });
-    return;
-  } 
-  
-  // check the surname
-  if( !Utils.isString( surname )){
-    res.status(400).json({ error: '"surname" must be a string' });
+  if( !user.validate() ){
+    res.status(400).json({ error: user.error });
     return;
   }
 
+  const userJson = user.toJson();
+        
   const params = {
     TableName: USERS_TABLE,
-    Item: {
-      userId: id,
-      name: name,
-      surname: surname
-    },
+    Item: userJson,
   };
 
   dynamoDb.put(params, error => {
@@ -151,7 +137,7 @@ app.post("/user", ( req:express.Request, res:express.Response ) => {
       return;
     };
 
-    res.json({ id, name, surname });
+    res.json( userJson );
   });
 
 });
